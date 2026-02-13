@@ -1,0 +1,19 @@
+{
+  "name": "claude-bridge",
+  "version": "1.0.0",
+  "description": "Local agent that bridges Claude.ai chat with Claude Code terminal",
+  "main": "index.js",
+  "bin": {
+    "claude-bridge": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "node-pty": "^1.0.0"
+  },
+  "keywords": ["claude", "bridge", "terminal", "ai"],
+  "author": "Al",
+  "license": "MIT"
+}

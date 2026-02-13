@@ -1,0 +1,386 @@
+/* Claude Bridge v3 - Styles */
+
+/* ── Button Container on Code Blocks ─────────────── */
+.cb-btn-container {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+pre:hover .cb-btn-container,
+.claude-bridge-processed:hover + .cb-btn-container,
+*:hover > .cb-btn-container {
+  opacity: 1;
+}
+
+.cb-send-btn,
+.cb-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.cb-send-btn {
+  background: #dc2626;
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.3);
+}
+
+.cb-send-btn:hover {
+  background: #b91c1c;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.4);
+  transform: translateY(-1px);
+}
+
+.cb-send-btn.cb-running {
+  background: #d97706;
+  animation: cb-pulse 1.5s ease-in-out infinite;
+}
+
+.cb-send-btn.cb-done {
+  background: #16a34a;
+}
+
+.cb-send-btn.cb-disconnected {
+  background: #4b5563;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+@keyframes cb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.cb-copy-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.cb-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* ── Status Bar (top right) ──────────────────────── */
+.cb-status-bar {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 12px;
+  background: #0a0a0a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  z-index: 99999;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s ease;
+}
+
+.cb-status-bar.cb-status-minimized {
+  max-width: 40px;
+  overflow: hidden;
+  padding: 6px 10px;
+}
+
+.cb-status-bar.cb-status-minimized .cb-status-left,
+.cb-status-bar.cb-status-minimized .cb-toggle-label,
+.cb-status-bar.cb-status-minimized .cb-action-btn:not(.cb-minimize-btn) {
+  display: none;
+}
+
+.cb-status-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cb-status-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cb-status-icon { font-size: 14px; }
+
+.cb-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.cb-dot-connected {
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.6);
+}
+
+.cb-dot-disconnected {
+  background: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.4);
+}
+
+.cb-status-text {
+  font-weight: 600;
+  font-size: 11px;
+}
+
+/* ── Toggle Switch ───────────────────────────────── */
+.cb-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #9ca3af;
+  user-select: none;
+}
+
+.cb-toggle-label input { display: none; }
+
+.cb-toggle-slider {
+  width: 28px;
+  height: 16px;
+  background: #374151;
+  border-radius: 8px;
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.cb-toggle-slider::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #9ca3af;
+  transition: all 0.2s ease;
+}
+
+.cb-toggle-label input:checked + .cb-toggle-slider {
+  background: #dc2626;
+}
+
+.cb-toggle-label input:checked + .cb-toggle-slider::after {
+  left: 14px;
+  background: #fff;
+}
+
+/* ── Action Buttons (screenshot, minimize) ───────── */
+.cb-action-btn {
+  background: none;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s ease;
+  color: #9ca3af;
+  line-height: 1;
+}
+
+.cb-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #4b5563;
+}
+
+.cb-action-btn.cb-capture-active-btn {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  animation: cb-pulse 1s ease-in-out infinite;
+}
+
+/* ── Screenshot Capture Mode Overlay ─────────────── */
+#cb-capture-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 999998;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#cb-capture-overlay.cb-capture-active {
+  opacity: 1;
+}
+
+.cb-capture-banner {
+  background: #dc2626;
+  color: #fff;
+  text-align: center;
+  padding: 8px 16px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+}
+
+.cb-capture-mode {
+  cursor: crosshair !important;
+}
+
+/* ── Output Panel (compact, bottom) ──────────────── */
+.cb-output-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 500px;
+  height: 180px;
+  background: #0a0a0a;
+  border-top: 2px solid #dc2626;
+  z-index: 99998;
+  display: flex;
+  flex-direction: column;
+  transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.cb-output-panel.cb-output-collapsed {
+  height: 32px;
+}
+
+.cb-output-panel.cb-output-collapsed .cb-output-content {
+  display: none;
+}
+
+.cb-output-panel.cb-output-collapsed .cb-output-actions {
+  display: none;
+}
+
+.cb-output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: #111;
+  border-bottom: 1px solid #1a1a1a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e5e5e5;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cb-output-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.cb-output-action,
+.cb-output-toggle {
+  background: none;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #9ca3af;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.cb-output-action:hover,
+.cb-output-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: #4b5563;
+  color: #fff;
+}
+
+/* Send to Chat button — highlighted */
+.cb-send-to-chat-btn {
+  background: rgba(220, 38, 38, 0.15) !important;
+  border-color: #dc2626 !important;
+  color: #dc2626 !important;
+  font-weight: 600 !important;
+}
+
+.cb-send-to-chat-btn:hover {
+  background: #dc2626 !important;
+  color: #fff !important;
+}
+
+/* Flash animation when output is ready */
+.cb-send-to-chat-btn.cb-flash {
+  animation: cb-btn-flash 0.5s ease-in-out 3;
+}
+
+@keyframes cb-btn-flash {
+  0%, 100% { background: rgba(220, 38, 38, 0.15); }
+  50% { background: #dc2626; color: #fff; }
+}
+
+.cb-output-content {
+  flex: 1;
+  padding: 8px 14px;
+  margin: 0;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #4ade80;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0a0a0a;
+}
+
+.cb-output-content::-webkit-scrollbar { width: 5px; }
+.cb-output-content::-webkit-scrollbar-track { background: transparent; }
+.cb-output-content::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+/* ── Toast Notifications ─────────────────────────── */
+.cb-toast {
+  position: fixed;
+  top: 50px;
+  right: 24px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  z-index: 99999;
+  opacity: 0;
+  transform: translateX(20px);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+  max-width: 320px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.cb-toast-show {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.cb-toast-success { background: #0a0a0a; color: #4ade80; border: 1px solid #16a34a; }
+.cb-toast-warning { background: #0a0a0a; color: #fbbf24; border: 1px solid #d97706; }
+.cb-toast-error { background: #0a0a0a; color: #f87171; border: 1px solid #dc2626; }
+.cb-toast-info { background: #0a0a0a; color: #d1d5db; border: 1px solid #4b5563; }

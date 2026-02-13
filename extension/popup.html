@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      width: 280px;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .header {
+      padding: 16px;
+      border-bottom: 1px solid #1a1a1a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-icon { font-size: 20px; }
+
+    .header h1 {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .header .version {
+      font-size: 10px;
+      color: #dc2626;
+      font-weight: 600;
+      background: rgba(220, 38, 38, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .section {
+      padding: 14px 16px;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .section-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #6b7280;
+      margin-bottom: 10px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .row:last-child { margin-bottom: 0; }
+
+    .label {
+      font-size: 12px;
+      color: #9ca3af;
+    }
+
+    .value {
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .dot-green {
+      background: #4ade80;
+      box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
+    }
+
+    .dot-red {
+      background: #f87171;
+      box-shadow: 0 0 6px rgba(248, 113, 113, 0.4);
+    }
+
+    .stat { color: #dc2626; font-weight: 700; }
+
+    /* Toggle in popup */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .toggle-label {
+      font-size: 12px;
+      color: #d1d5db;
+    }
+
+    .toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+    }
+
+    .toggle input { display: none; }
+
+    .toggle-track {
+      width: 36px;
+      height: 20px;
+      background: #374151;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+      display: block;
+    }
+
+    .toggle-track::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #9ca3af;
+      transition: all 0.2s;
+    }
+
+    .toggle input:checked + .toggle-track {
+      background: #dc2626;
+    }
+
+    .toggle input:checked + .toggle-track::after {
+      left: 19px;
+      background: #fff;
+    }
+
+    .footer {
+      padding: 12px 16px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #2a2a2a;
+      border-radius: 6px;
+      background: #151515;
+      color: #d1d5db;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+
+    .btn:hover {
+      background: #1f1f1f;
+      border-color: #3a3a3a;
+      color: #fff;
+    }
+
+    .workflow {
+      padding: 12px 16px;
+      border-bottom: 1px solid #1a1a1a;
+    }
+
+    .workflow-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+
+    .workflow-steps {
+      font-size: 11px;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+
+    .workflow-steps span {
+      color: #d1d5db;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="header-icon">🌉</span>
+    <div>
+      <h1>Claude Bridge</h1>
+    </div>
+    <span class="version">v2</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Status</div>
+    <div class="row">
+      <span class="label">Agent</span>
+      <span class="value">
+        <span class="dot dot-red" id="statusDot"></span>
+        <span id="statusText">Checking...</span>
+      </span>
+    </div>
+    <div class="row">
+      <span class="label">Port</span>
+      <span class="value">localhost:9876</span>
+    </div>
+    <div class="row">
+      <span class="label">Prompts Sent</span>
+      <span class="value stat" id="sentCount">0</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Controls</div>
+    <div class="toggle-row">
+      <span class="toggle-label">Auto-Run (skip Enter)</span>
+      <div class="toggle">
+        <input type="checkbox" id="autoExec" checked>
+        <label class="toggle-track" for="autoExec"></label>
+      </div>
+    </div>
+    <div class="toggle-row">
+      <span class="toggle-label">Auto-Feedback to Chat</span>
+      <div class="toggle">
+        <input type="checkbox" id="autoFeedback" checked>
+        <label class="toggle-track" for="autoFeedback"></label>
+      </div>
+    </div>
+  </div>
+
+  <div class="workflow">
+    <div class="workflow-title">Workflow</div>
+    <div class="workflow-steps">
+      <span>Claude responds</span> → click Send & Run →<br>
+      <span>auto-executes</span> → output feeds back →<br>
+      <span>Claude sees result</span> → generates fix → repeat
+    </div>
+  </div>
+
+  <div class="footer">
+    <button class="btn" id="resetBtn">Reset Counter</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
