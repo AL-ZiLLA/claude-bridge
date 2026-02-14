@@ -1,5 +1,5 @@
-// Claude Bridge v3 - Content Script
-// Manual feedback, click-to-capture screenshots, compact output panel
+// Claude Bridge v5 - Content Script
+// Named PTY sessions, direct write, output panel
 
 (function () {
   "use strict";
@@ -9,14 +9,13 @@
   let isConnected = false;
   let reconnectTimer = null;
   let autoExecute = true;
-  let captureMode = false;
+  let sessions = [];
+  let activeSessionId = null;
   const RECONNECT_DELAY = 3000;
 
-  // ── WebSocket Connection ──────────────────────────────────
+  // ── WebSocket ─────────────────────────────────────────────
   function connectWebSocket() {
-    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-      return;
-    }
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
     try {
       ws = new WebSocket(WS_URL);
@@ -27,7 +26,6 @@
         updateAllButtonStates();
         updateBadge(true);
         updateStatusBar(true);
-        console.log("[Claude Bridge] Connected to agent");
       };
 
       ws.onclose = () => {
@@ -35,7 +33,6 @@
         updateAllButtonStates();
         updateBadge(false);
         updateStatusBar(false);
-        console.log("[Claude Bridge] Disconnected");
         scheduleReconnect();
       };
 
@@ -50,23 +47,43 @@
         try {
           const data = JSON.parse(event.data);
 
+          if (data.type === "sessions") {
+            sessions = data.sessions || [];
+            activeSessionId = data.activeId;
+            updateSessionDropdown();
+          }
+
+          if (data.type === "session_selected") {
+            activeSessionId = data.activeId;
+            updateSessionDropdown();
+          }
+
+          if (data.type === "ack") {
+            updateRunningButtons();
+            showToast(`⚡ Sent to ${data.sessionName || "terminal"}`, "success");
+          }
+
           if (data.type === "output") {
-            appendToOutputPanel(data.text);
+            appendToOutputPanel(data.text, data.sessionName);
           }
 
           if (data.type === "command_complete") {
             updateRunningButtons();
-            // Flash the "Send to Chat" button to let Al know output is ready
             flashSendToChat();
           }
 
           if (data.type === "error_detected") {
-            showToast("⚠️ Error in terminal — check output panel", "warning");
+            showToast(`⚠️ Error in ${data.sessionId ? "terminal" : ""}`, "warning");
             flashSendToChat();
           }
 
+          if (data.type === "error") {
+            showToast(data.message || "Error", "error");
+            updateRunningButtons();
+          }
+
           if (data.type === "screenshot") {
-            pasteScreenshotToChat(data.dataUrl);
+            showToast("📸 Screenshot ready", "success");
           }
         } catch (e) {}
       };
@@ -81,50 +98,10 @@
   }
 
   function updateBadge(connected) {
-    try {
-      chrome.runtime.sendMessage({ type: "status", connected });
-    } catch (e) {}
+    try { chrome.runtime.sendMessage({ type: "status", connected }); } catch (e) {}
   }
 
-  // ── Paste to Claude Chat ──────────────────────────────────
-  function pasteTextToChat(text) {
-    const chatInput = findChatInput();
-    if (!chatInput) {
-      showToast("Couldn't find chat input", "warning");
-      return false;
-    }
-    insertTextToChat(chatInput, text);
-    return true;
-  }
-
-  function pasteScreenshotToChat(dataUrl) {
-    exitCaptureMode();
-    showToast("📸 Pasting screenshot to chat...", "info");
-
-    try {
-      fetch(dataUrl)
-        .then((res) => res.blob())
-        .then((blob) => {
-          const file = new File([blob], "screenshot.png", { type: "image/png" });
-          const dt = new DataTransfer();
-          dt.items.add(file);
-
-          const chatInput = findChatInput();
-          if (chatInput) {
-            const pasteEvent = new ClipboardEvent("paste", {
-              clipboardData: dt,
-              bubbles: true,
-            });
-            chatInput.dispatchEvent(pasteEvent);
-            showToast("📸 Screenshot ready — add context and send", "success");
-          }
-        });
-    } catch (e) {
-      console.log("[Claude Bridge] Screenshot paste failed:", e);
-      showToast("Screenshot paste failed", "error");
-    }
-  }
-
+  // ── Chat Helpers ──────────────────────────────────────────
   function findChatInput() {
     const selectors = [
       'div.ProseMirror[contenteditable="true"]',
@@ -133,30 +110,31 @@
       'textarea',
       '.ProseMirror',
     ];
-
     for (const sel of selectors) {
       const elements = document.querySelectorAll(sel);
       for (const el of elements) {
-        if (el.offsetHeight > 20 && el.offsetWidth > 0) {
-          return el;
-        }
+        if (el.offsetHeight > 20 && el.offsetWidth > 0) return el;
       }
     }
     return null;
   }
 
-  function insertTextToChat(element, text) {
-    element.focus();
-    if (element.tagName === "TEXTAREA") {
-      element.value = text;
-      element.dispatchEvent(new Event("input", { bubbles: true }));
-    } else {
-      if (element.textContent.trim() === "") {
-        element.innerHTML = "";
-      }
-      document.execCommand("insertText", false, text);
-      element.dispatchEvent(new Event("input", { bubbles: true }));
+  function pasteTextToChat(text) {
+    const chatInput = findChatInput();
+    if (!chatInput) {
+      showToast("Couldn't find chat input", "warning");
+      return false;
     }
+    chatInput.focus();
+    if (chatInput.tagName === "TEXTAREA") {
+      chatInput.value = text;
+      chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+    } else {
+      if (chatInput.textContent.trim() === "") chatInput.innerHTML = "";
+      document.execCommand("insertText", false, text);
+      chatInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    return true;
   }
 
   function truncateOutput(text, maxLen) {
@@ -165,92 +143,15 @@
     return text.substring(0, half) + "\n\n... (truncated) ...\n\n" + text.substring(text.length - half);
   }
 
-  // ── Screenshot Capture Mode ───────────────────────────────
-  function enterCaptureMode() {
-    captureMode = true;
-    document.body.classList.add("cb-capture-mode");
-
-    // Show overlay instruction
-    let overlay = document.getElementById("cb-capture-overlay");
-    if (!overlay) {
-      overlay = document.createElement("div");
-      overlay.id = "cb-capture-overlay";
-      overlay.innerHTML = `
-        <div class="cb-capture-banner">
-          📸 Click any browser tab to capture it — or press <strong>Esc</strong> to cancel
-        </div>
-      `;
-      document.body.appendChild(overlay);
-    }
-    overlay.classList.add("cb-capture-active");
-
-    // Listen for tab visibility change (user clicks another tab)
-    document.addEventListener("visibilitychange", onTabSwitch);
-
-    // Esc to cancel
-    document.addEventListener("keydown", onCaptureKeydown);
-
-    showToast("📸 Capture mode — click any tab", "info");
-
-    // Tell agent to prepare for capture
-    if (ws && isConnected) {
-      ws.send(JSON.stringify({ type: "capture_ready" }));
-    }
-  }
-
-  function exitCaptureMode() {
-    captureMode = false;
-    document.body.classList.remove("cb-capture-mode");
-
-    const overlay = document.getElementById("cb-capture-overlay");
-    if (overlay) overlay.classList.remove("cb-capture-active");
-
-    document.removeEventListener("visibilitychange", onTabSwitch);
-    document.removeEventListener("keydown", onCaptureKeydown);
-
-    // Update button state
-    const btn = document.getElementById("cbScreenshotBtn");
-    if (btn) {
-      btn.classList.remove("cb-capture-active-btn");
-      btn.textContent = "📸";
-    }
-  }
-
-  function onTabSwitch() {
-    if (!captureMode) return;
-
-    // User switched to another tab — tell agent to screenshot that window
-    if (document.hidden && ws && isConnected) {
-      ws.send(JSON.stringify({ type: "screenshot_request", trigger: "tab_switch" }));
-    }
-  }
-
-  function onCaptureKeydown(e) {
-    if (e.key === "Escape") {
-      exitCaptureMode();
-      showToast("Capture cancelled", "info");
-    }
-  }
-
-  // Also allow capturing current page via right-click on screenshot btn
-  function captureCurrentPage() {
-    if (ws && isConnected) {
-      ws.send(JSON.stringify({ type: "screenshot_request", trigger: "current_page" }));
-      showToast("📸 Capturing current view...", "info");
-    }
-  }
-
-  // ── Button Injection on Code Blocks ───────────────────────
+  // ── Code Block Buttons ────────────────────────────────────
   function createBridgeButton(codeBlock) {
     if (codeBlock.closest(".claude-bridge-processed")) return;
-
     const wrapper = codeBlock.closest("pre") || codeBlock;
     wrapper.classList.add("claude-bridge-processed");
 
     const btnContainer = document.createElement("div");
     btnContainer.className = "cb-btn-container";
 
-    // Send & Run button
     const sendBtn = document.createElement("button");
     sendBtn.className = "cb-send-btn";
     sendBtn.innerHTML = `
@@ -259,55 +160,42 @@
       </svg>
       <span class="cb-btn-text">Send & Run</span>
     `;
-
-    if (!isConnected) {
-      sendBtn.classList.add("cb-disconnected");
-      sendBtn.title = "Bridge agent not connected";
-    }
+    if (!isConnected) sendBtn.classList.add("cb-disconnected");
 
     sendBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-
       const text = codeBlock.textContent.trim();
-      if (!text) return;
-
-      if (!isConnected) {
-        showToast("⚠️ Bridge not connected. Run: node agent/index.js", "warning");
+      if (!text || !isConnected) {
+        showToast(isConnected ? "Empty block" : "Bridge not connected", "warning");
+        return;
+      }
+      if (!activeSessionId) {
+        showToast("⚠️ No terminal session — create one from the + button", "warning");
         return;
       }
 
-      try {
-        ws.send(
-          JSON.stringify({
-            type: "prompt",
-            text: text,
-            autoExecute: autoExecute,
-          })
-        );
+      ws.send(JSON.stringify({
+        type: "prompt",
+        text,
+        autoExecute,
+        sessionId: activeSessionId,
+      }));
 
-        sendBtn.classList.add("cb-running");
-        sendBtn.querySelector(".cb-btn-text").textContent = "⚡ Running...";
+      sendBtn.classList.add("cb-running");
+      sendBtn.querySelector(".cb-btn-text").textContent = "⚡ Running...";
+      setTimeout(() => {
+        if (sendBtn.classList.contains("cb-running")) {
+          sendBtn.classList.remove("cb-running");
+          sendBtn.querySelector(".cb-btn-text").textContent = "Send & Run";
+        }
+      }, 15000);
 
-        setTimeout(() => {
-          if (sendBtn.classList.contains("cb-running")) {
-            sendBtn.classList.remove("cb-running");
-            sendBtn.querySelector(".cb-btn-text").textContent = "Send & Run";
-          }
-        }, 30000);
-
-        showToast(autoExecute ? "⚡ Running..." : "Sent — press Enter to run", "success");
-
-        chrome.storage.local.get(["sentCount"], (result) => {
-          const count = (result.sentCount || 0) + 1;
-          chrome.storage.local.set({ sentCount: count });
-        });
-      } catch (err) {
-        showToast("❌ Failed to send", "error");
-      }
+      chrome.storage.local.get(["sentCount"], (r) => {
+        chrome.storage.local.set({ sentCount: (r.sentCount || 0) + 1 });
+      });
     });
 
-    // Copy button
     const copyBtn = document.createElement("button");
     copyBtn.className = "cb-copy-btn";
     copyBtn.innerHTML = `
@@ -317,41 +205,25 @@
       </svg>
       <span class="cb-btn-text">Copy</span>
     `;
-
     copyBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const text = codeBlock.textContent.trim();
-      navigator.clipboard.writeText(text).then(() => {
+      navigator.clipboard.writeText(codeBlock.textContent.trim()).then(() => {
         copyBtn.querySelector(".cb-btn-text").textContent = "✅ Copied";
-        setTimeout(() => {
-          copyBtn.querySelector(".cb-btn-text").textContent = "Copy";
-        }, 1500);
+        setTimeout(() => { copyBtn.querySelector(".cb-btn-text").textContent = "Copy"; }, 1500);
       });
     });
 
     btnContainer.appendChild(copyBtn);
     btnContainer.appendChild(sendBtn);
-
     const parent = wrapper.parentElement;
-    if (parent) {
-      parent.style.position = "relative";
-      parent.appendChild(btnContainer);
-    } else {
-      wrapper.style.position = "relative";
-      wrapper.appendChild(btnContainer);
-    }
+    if (parent) { parent.style.position = "relative"; parent.appendChild(btnContainer); }
+    else { wrapper.style.position = "relative"; wrapper.appendChild(btnContainer); }
   }
 
   function updateAllButtonStates() {
     document.querySelectorAll(".cb-send-btn").forEach((btn) => {
-      if (isConnected) {
-        btn.classList.remove("cb-disconnected");
-        btn.title = "";
-      } else {
-        btn.classList.add("cb-disconnected");
-        btn.title = "Bridge agent not connected";
-      }
+      btn.classList.toggle("cb-disconnected", !isConnected);
     });
   }
 
@@ -367,7 +239,7 @@
     });
   }
 
-  // ── Floating Status Bar ───────────────────────────────────
+  // ── Status Bar ────────────────────────────────────────────
   function createStatusBar() {
     const bar = document.createElement("div");
     bar.id = "cb-status-bar";
@@ -378,35 +250,59 @@
         <span class="cb-status-dot" id="cbStatusDot"></span>
         <span class="cb-status-text" id="cbStatusText">Disconnected</span>
       </div>
+      <div class="cb-status-center">
+        <div class="cb-session-selector">
+          <select id="cbSessionSelect" title="Select terminal session">
+            <option value="">— No Sessions —</option>
+          </select>
+          <button class="cb-action-btn cb-add-btn" id="cbAddSession" title="Create new terminal session">+</button>
+        </div>
+      </div>
       <div class="cb-status-right">
-        <label class="cb-toggle-label" title="Auto-execute commands (no Enter needed)">
+        <label class="cb-toggle-label" title="Auto-execute">
           <span>Auto-Run</span>
           <input type="checkbox" id="cbAutoExec" ${autoExecute ? "checked" : ""}>
           <span class="cb-toggle-slider"></span>
         </label>
-        <button class="cb-action-btn" id="cbScreenshotBtn" title="📸 Click, then click any tab to capture">📸</button>
+        <button class="cb-action-btn" id="cbScreenshotBtn" title="Screenshot">📸</button>
         <button class="cb-action-btn cb-minimize-btn" id="cbMinimize" title="Minimize">─</button>
       </div>
     `;
-
     document.body.appendChild(bar);
 
-    // Auto-Run toggle
+    // Session selector
+    document.getElementById("cbSessionSelect").addEventListener("change", (e) => {
+      if (e.target.value && ws && isConnected) {
+        activeSessionId = e.target.value;
+        ws.send(JSON.stringify({ type: "select_session", sessionId: activeSessionId }));
+        const s = sessions.find((s) => s.id === activeSessionId);
+        showToast(`📂 Active: ${s ? s.name : "terminal"}`, "success");
+      }
+    });
+
+    // Add session
+    document.getElementById("cbAddSession").addEventListener("click", () => {
+      if (!isConnected) { showToast("Not connected", "warning"); return; }
+      const name = prompt("Session name:", `Terminal ${sessions.length + 1}`);
+      if (name) {
+        const cwd = prompt("Working directory (leave empty for home):", "");
+        ws.send(JSON.stringify({ type: "create_session", name, cwd: cwd || undefined }));
+        showToast(`+ Created session: ${name}`, "success");
+      }
+    });
+
+    // Auto-Run
     document.getElementById("cbAutoExec").addEventListener("change", (e) => {
       autoExecute = e.target.checked;
       chrome.storage.local.set({ autoExecute });
       showToast(autoExecute ? "⚡ Auto-Run ON" : "🛑 Auto-Run OFF", "info");
     });
 
-    // Screenshot button — triggers Win+Shift+S via agent
-    const ssBtn = document.getElementById("cbScreenshotBtn");
-    ssBtn.addEventListener("click", () => {
-      if (!isConnected) {
-        showToast("Bridge not connected", "warning");
-        return;
-      }
+    // Screenshot
+    document.getElementById("cbScreenshotBtn").addEventListener("click", () => {
+      if (!isConnected) { showToast("Not connected", "warning"); return; }
       ws.send(JSON.stringify({ type: "screenshot_request" }));
-      showToast("📸 Snipping tool opening...", "info");
+      showToast("📸 Opening snip tool...", "info");
     });
 
     // Minimize
@@ -416,10 +312,9 @@
       bar.classList.toggle("cb-status-minimized", minimized);
     });
 
-    // Load saved prefs
-    chrome.storage.local.get(["autoExecute"], (result) => {
-      if (result.autoExecute !== undefined) {
-        autoExecute = result.autoExecute;
+    chrome.storage.local.get(["autoExecute"], (r) => {
+      if (r.autoExecute !== undefined) {
+        autoExecute = r.autoExecute;
         document.getElementById("cbAutoExec").checked = autoExecute;
       }
     });
@@ -429,19 +324,33 @@
     const dot = document.getElementById("cbStatusDot");
     const text = document.getElementById("cbStatusText");
     if (dot && text) {
-      if (connected) {
-        dot.className = "cb-status-dot cb-dot-connected";
-        text.textContent = "Connected";
-        text.style.color = "#4ade80";
-      } else {
-        dot.className = "cb-status-dot cb-dot-disconnected";
-        text.textContent = "Disconnected";
-        text.style.color = "#f87171";
-      }
+      dot.className = connected ? "cb-status-dot cb-dot-connected" : "cb-status-dot cb-dot-disconnected";
+      text.textContent = connected ? "Connected" : "Disconnected";
+      text.style.color = connected ? "#4ade80" : "#f87171";
     }
   }
 
-  // ── Output Panel (Compact) ────────────────────────────────
+  function updateSessionDropdown() {
+    const select = document.getElementById("cbSessionSelect");
+    if (!select) return;
+
+    select.innerHTML = sessions.length === 0
+      ? '<option value="">— No Sessions —</option>'
+      : "";
+
+    sessions.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = s.name;
+      opt.title = s.cwd;
+      if (s.id === activeSessionId) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    select.classList.toggle("cb-session-active", !!activeSessionId);
+  }
+
+  // ── Output Panel ──────────────────────────────────────────
   function createOutputPanel() {
     const panel = document.createElement("div");
     panel.id = "cb-output-panel";
@@ -450,51 +359,36 @@
       <div class="cb-output-header" id="cbOutputHeader">
         <span>🖥️ Terminal Output</span>
         <div class="cb-output-actions">
-          <button class="cb-output-action cb-send-to-chat-btn" id="cbOutputFeed" title="Send output to Claude chat">
-            💬 Send to Chat
-          </button>
-          <button class="cb-output-action" id="cbOutputCopy" title="Copy output">📋</button>
+          <button class="cb-output-action cb-send-to-chat-btn" id="cbOutputFeed" title="Send to chat">💬 Send to Chat</button>
+          <button class="cb-output-action" id="cbOutputCopy" title="Copy">📋</button>
           <button class="cb-output-action" id="cbOutputClear" title="Clear">🗑️</button>
           <button class="cb-output-toggle" id="cbOutputToggle">▲</button>
         </div>
       </div>
       <pre class="cb-output-content" id="cbOutputContent"></pre>
     `;
-
     document.body.appendChild(panel);
 
-    // Toggle expand/collapse
     document.getElementById("cbOutputHeader").addEventListener("click", (e) => {
-      // Don't toggle if clicking a button
       if (e.target.closest("button")) return;
       toggleOutputPanel();
     });
-
     document.getElementById("cbOutputToggle").addEventListener("click", toggleOutputPanel);
 
-    // Send to Chat — MANUAL. Pastes output into chat input.
     document.getElementById("cbOutputFeed").addEventListener("click", () => {
       const content = document.getElementById("cbOutputContent").textContent.trim();
-      if (!content) {
-        showToast("No output to send", "info");
-        return;
-      }
-
+      if (!content) { showToast("No output", "info"); return; }
       const formatted = "Here's the terminal output:\n\n```\n" + truncateOutput(content, 3000) + "\n```\n\nCan you check this?";
-
       if (pasteTextToChat(formatted)) {
-        showToast("📋 Output pasted to chat — review and send", "success");
+        showToast("📋 Output pasted — review and send", "success");
       }
     });
 
-    // Copy
     document.getElementById("cbOutputCopy").addEventListener("click", () => {
-      const content = document.getElementById("cbOutputContent").textContent;
-      navigator.clipboard.writeText(content);
+      navigator.clipboard.writeText(document.getElementById("cbOutputContent").textContent);
       showToast("Copied", "success");
     });
 
-    // Clear
     document.getElementById("cbOutputClear").addEventListener("click", () => {
       document.getElementById("cbOutputContent").textContent = "";
     });
@@ -507,11 +401,10 @@
     toggle.textContent = panel.classList.contains("cb-output-collapsed") ? "▲" : "▼";
   }
 
-  function appendToOutputPanel(text) {
+  function appendToOutputPanel(text, sessionName) {
     const content = document.getElementById("cbOutputContent");
     if (content) {
-      const clean = text.replace(/\x1b\[[0-9;]*m/g, "");
-      content.textContent += clean;
+      content.textContent += text.replace(/\x1b\[[0-9;]*m/g, "");
       content.scrollTop = content.scrollHeight;
     }
   }
@@ -524,18 +417,15 @@
     }
   }
 
-  // ── Toast Notifications ───────────────────────────────────
+  // ── Toast ─────────────────────────────────────────────────
   function showToast(message, type = "info") {
     const existing = document.querySelector(".cb-toast");
     if (existing) existing.remove();
-
     const toast = document.createElement("div");
     toast.className = `cb-toast cb-toast-${type}`;
     toast.textContent = message;
     document.body.appendChild(toast);
-
     requestAnimationFrame(() => toast.classList.add("cb-toast-show"));
-
     setTimeout(() => {
       toast.classList.remove("cb-toast-show");
       setTimeout(() => toast.remove(), 300);
@@ -544,17 +434,11 @@
 
   // ── DOM Observer ──────────────────────────────────────────
   function scanForCodeBlocks() {
-    const codeBlocks = document.querySelectorAll(
-      'pre code:not(.claude-bridge-scanned), [class*="code-block"] code:not(.claude-bridge-scanned)'
-    );
-
-    codeBlocks.forEach((block) => {
+    document.querySelectorAll('pre code:not(.claude-bridge-scanned)').forEach((block) => {
       block.classList.add("claude-bridge-scanned");
       createBridgeButton(block);
     });
-
-    const preTags = document.querySelectorAll("pre:not(.claude-bridge-processed)");
-    preTags.forEach((pre) => {
+    document.querySelectorAll("pre:not(.claude-bridge-processed)").forEach((pre) => {
       if (pre.querySelector("code") || pre.textContent.trim().length > 20) {
         const code = pre.querySelector("code") || pre;
         if (!code.classList.contains("claude-bridge-scanned")) {
@@ -566,22 +450,18 @@
   }
 
   const observer = new MutationObserver((mutations) => {
-    let shouldScan = false;
-    for (const mutation of mutations) {
-      if (mutation.addedNodes.length > 0) {
-        shouldScan = true;
+    for (const m of mutations) {
+      if (m.addedNodes.length > 0) {
+        clearTimeout(observer._t);
+        observer._t = setTimeout(scanForCodeBlocks, 500);
         break;
       }
-    }
-    if (shouldScan) {
-      clearTimeout(observer._scanTimer);
-      observer._scanTimer = setTimeout(scanForCodeBlocks, 500);
     }
   });
 
   // ── Init ──────────────────────────────────────────────────
   function init() {
-    console.log("[Claude Bridge v3] Loaded");
+    console.log("[Claude Bridge v5] Loaded");
     createStatusBar();
     createOutputPanel();
     connectWebSocket();
